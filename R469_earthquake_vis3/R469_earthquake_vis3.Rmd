@@ -1,0 +1,202 @@
+---
+title: "R469_earthquake_vis3"
+author: "fk506cni"
+date: "2023-11-27"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+
+```{r}
+require(tidyverse)
+require(readr)
+require(data.table)
+require(ggpubr)
+
+require(extrafont)
+# require(ggrepel)
+loadfonts(quiet = T)
+```
+
+
+## functions
+```{r}
+require(officer)
+require(rvg)
+
+outputdir <- "./figs/"
+if(!dir.exists(outputdir)){
+  dir.create(outputdir)
+}
+
+ggsave2_tri <- function(plot, wid = 9, hei=9){
+  plot_name <- deparse(substitute(plot))
+  
+  #png
+  file_name <- paste(outputdir,plot_name, ".png", sep = "",collapse = "")
+  ggsave(filename = file_name,plot = plot,device = "png",width = wid, height = hei,dpi = 300,units = "cm")
+  
+  
+  # #pdf
+  # file_name <- paste(outputdir,plot_name, ".pdf", sep = "",collapse = "")
+  # ggsave(filename = file_name,plot = plot,device = "pdf",width = wid, height = hei,dpi = 300,units = "cm")
+  
+  #pptx
+  file_name <- paste(outputdir,plot_name, ".pptx", sep = "",collapse = "")
+  plot_ed <- rvg::dml(ggobj = plot,width = wid, height = hei)
+  
+  doc <- read_pptx() %>%
+    add_slide('Title and Content', 'Office Theme') %>%
+    ph_with(value = "", location = ph_location_type(type = "title")) %>%
+    ph_with(value = plot_ed, location = ph_location(type = "body",width = cm2inch(wid), height = cm2inch(hei),left = 2, top = 2))
+  doc %>%
+    print(target = file_name)
+  
+}
+
+
+
+inch2cm <- function(x){
+  return(x/0.39370)
+}
+cm2inch <- function(x){
+  return(0.39370*x)
+}
+
+p2cm <- function(x){
+  return(as.integer(0.008466666666666667 * x))
+}
+
+cm2p <- function(x){
+  return(as.integer(118.11023622047244 *x))
+}
+
+sv2ggkm <- function(svfit){
+  p <- ggsurvplot(fit = svfit, data = df,
+                risk.table.title = "risk.table.title", risk.table.y.text.col = TRUE,
+           risk.table.y.text = FALSE, fontsize = 5,
+           risk.table = TRUE, tables.theme = theme_pubr(), ggtheme = theme_pubr())
+  p_km <- p$plot
+  p_tb <- p$table
+  p2 <- cowplot::plot_grid(p_km, p_tb, ncol = 1,align = "v", rel_heights = c(3,1))
+  grid::grid.draw(p2)
+  return(p2)
+}
+```
+
+
+
+```{r}
+f_os <- "../../Note/201912_kyoto_uni_kurata_iryou/measurement/No4_OS2_070.CSV"
+f_kb <- "../../Note/201912_kyoto_uni_kurata_iryou/measurement/No4_kobe070.CSV"
+```
+
+
+```{r}
+l_df <- list()
+
+f_ <- f_os
+
+df_h <- readr::read_csv(file = f_, skip=3,n_max=1, col_names = F, locale = locale(encoding = "shift-jis")) %>% 
+  t() %>% as.vector()
+
+df <- readr::read_csv(file = f_, skip=8, col_names = F, locale = locale(encoding = "shift-jis")) %>% 
+  `colnames<-`(df_h) %>% 
+  mutate(type = "OS-2")
+
+l_df[["OS-2"]] <- df
+
+f_ <- f_kb
+
+df_h <- readr::read_csv(file = f_, skip=3,n_max=1, col_names = F, locale = locale(encoding = "shift-jis")) %>% 
+  t() %>% as.vector()
+
+df <- readr::read_csv(file = f_, skip=8, col_names = F, locale = locale(encoding = "shift-jis")) %>% 
+  `colnames<-`(df_h) %>% 
+  mutate(type = "Kobe")
+
+l_df[["Kobe"]] <- df
+# l_df <- append(l_df, df)
+
+
+df2 <- bind_rows(l_df) %>% 
+  rename(time = `計測時間`) %>% 
+  mutate(val = T_acc_Y/0.7) %>% 
+  mutate(val = val /100)
+
+```
+
+
+```{r}
+p_wave <- ggplot()+
+  theme_pubr(base_family = "Times New Roman", legend = "none")+
+  geom_line(data = df2,
+            aes(x=time, y=val, color=type),linewidth=0.2)+
+  coord_cartesian(expand = F)+
+  facet_wrap(facets = ~type, nrow = 2)+
+  xlab("Time (seconds)")+
+  ylab(expression('Acceleration (' * m/s^2 * ')'))
+  # ylab("Acceleration (gal)")
+
+p_wave
+
+ggsave2_tri(plot = p_wave, wid = 18, hei = 9)
+```
+
+
+
+```{r}
+f_t <- "../../Note/201912_kyoto_uni_kurata_iryou/measurement/No4_OS2_090_X.CSV"
+f_ <- f_t
+df_h <- readr::read_csv(file = f_, skip=3,n_max=1, col_names = F, locale = locale(encoding = "shift-jis")) %>% 
+  t() %>% as.vector()
+
+df <- readr::read_csv(file = f_, skip=8, col_names = F, locale = locale(encoding = "shift-jis")) %>% 
+  `colnames<-`(df_h) %>% 
+  mutate(type = "OS-2")
+
+df %>% filter(T_acc_Y == min(T_acc_Y))
+
+
+df_t <- df %>% 
+  rename(time = `計測時間`) %>% 
+  tidyr::pivot_longer(cols = c('Ay1', 'Ay9', 'Ax2', 'T_acc_Y')) %>% 
+  filter(name %in% c("Ay1","Ay9", 'T_acc_Y')) %>% 
+  mutate(namex = case_when(
+    name == "Ay1" ~ "Operateing Table",
+    name == "Ay9" ~ "Mannequine Head",
+    name == "T_acc_Y" ~ "Shaking Table"
+  ))
+
+```
+
+
+```{r}
+p_tp <- ggplot()+
+  theme_pubr(base_family = "Times New Roman", legend = "none")+
+  # geom_vline(xintercept = 50, color="black")+
+  # geom_vline(xintercept = 50, color="black")+
+  geom_line(data = df_t,
+            aes(x=time,
+                y=value/100,
+                color=namex),linewidth=0.2)+
+  facet_wrap(facets = ~namex, ncol = 1,scales = "free")+
+  scale_x_continuous(limits = c(0, 90), expand = c(0,0), oob = scales::squish) +
+  # ylab("Acceralation (gal)")+
+  ylab(expression('Acceleration (' * m/s^2 * ')'))+
+  xlab("Time (second)")
+p_tp
+
+
+ggsave2_tri(p_tp, wid = 16, hei = 13)
+```
+
+
+```{r}
+```
+
+
+```{r}
+sessionInfo()
+```

@@ -1,0 +1,484 @@
+---
+title: "R468_earthquake_vis2"
+author: "fk506cni"
+date: "2023-10-31"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r}
+require(tidyverse)
+require(data.table)
+require(ggpubr)
+require(extrafont)
+require(ggrepel)
+loadfonts(quiet = T)
+
+```
+
+
+
+## functions
+```{r}
+require(officer)
+require(rvg)
+
+outputdir <- "./figs/"
+if(!dir.exists(outputdir)){
+  dir.create(outputdir)
+}
+
+ggsave2_tri <- function(plot, wid = 9, hei=9){
+  plot_name <- deparse(substitute(plot))
+  
+  #png
+  file_name <- paste(outputdir,plot_name, ".png", sep = "",collapse = "")
+  ggsave(filename = file_name,plot = plot,device = "png",width = wid, height = hei,dpi = 300,units = "cm")
+  
+  
+  # #pdf
+  # file_name <- paste(outputdir,plot_name, ".pdf", sep = "",collapse = "")
+  # ggsave(filename = file_name,plot = plot,device = "pdf",width = wid, height = hei,dpi = 300,units = "cm")
+  
+  #pptx
+  file_name <- paste(outputdir,plot_name, ".pptx", sep = "",collapse = "")
+  plot_ed <- rvg::dml(ggobj = plot,width = wid, height = hei)
+  
+  doc <- read_pptx() %>%
+  add_slide('Title and Content', 'Office Theme') %>%
+        ph_with(value = "", location = ph_location_type(type = "title")) %>%
+    ph_with(value = plot_ed, location = ph_location(type = "body",width = cm2inch(wid), height = cm2inch(hei),left = 2, top = 2))
+  doc %>%
+    print(target = file_name)
+  
+}
+
+
+
+inch2cm <- function(x){
+  return(x/0.39370)
+}
+cm2inch <- function(x){
+  return(0.39370*x)
+}
+
+p2cm <- function(x){
+  return(as.integer(0.008466666666666667 * x))
+}
+
+cm2p <- function(x){
+  return(as.integer(118.11023622047244 *x))
+}
+
+sv2ggkm <- function(svfit){
+  p <- ggsurvplot(fit = svfit, data = df,
+                risk.table.title = "risk.table.title", risk.table.y.text.col = TRUE,
+           risk.table.y.text = FALSE, fontsize = 5,
+           risk.table = TRUE, tables.theme = theme_pubr(), ggtheme = theme_pubr())
+  p_km <- p$plot
+  p_tb <- p$table
+  p2 <- cowplot::plot_grid(p_km, p_tb, ncol = 1,align = "v", rel_heights = c(3,1))
+  grid::grid.draw(p2)
+  return(p2)
+}
+```
+
+
+```{r}
+# f_res <- "../../dat/df_des_res_fix_20231101_124410_977820.csv"
+# f_res <- "../../dat/df_des_res_fix_20231108_124904_004783.csv"
+# f_res <- "../../dat/df_des_res_fix_20231127_150230_910322.csv"
+f_res <- "../../dat/df_des_res_fix_20231229_171055_914574.csv"
+df <- fread(f_res) %>% 
+  mutate(is_rocked = movement %in% c("ロッキング","転倒")) %>%
+  mutate(is_rocked_num = if_else(is_rocked, 1, 0)) %>% 
+  mutate(rockingstate = if_else(is_rocked, "Rocked", "Not")) %>% 
+  mutate(exlabel = accentulation_number %>% 
+           str_remove(".CSV") %>% 
+           str_sub(start = 5) %>% 
+           str_remove("kobe0|OS2_0")
+           ) %>% 
+  mutate(position_e =  
+           case_when(position == "仰臥位"~"Spine",
+                     position == "頭低位"~"HeadDown",
+                     T ~ "Other") %>% 
+           as.factor()) %>% 
+  mutate(position_div = as.numeric(position_e) + 0.1 * is_rocked_num -0.05) %>% 
+  mutate(wave_e = as.factor(seismic_wave)) %>% 
+  mutate(wave_div = as.numeric(wave_e) + 0.2 * is_rocked_num -0.1) %>% 
+  rename(floor_mat = floor) %>% 
+  select(exlabel, everything()) %>% 
+  mutate(pct = str_c(
+     as.character(output),
+    "%",
+     sep=""
+  )) %>% 
+  mutate(exlabel2 = str_c(
+    OT_tpye,
+    position_e,
+    floor_mat,
+    pct,
+    sep="/"
+  )) %>% 
+  mutate(exlabel3 = str_c(
+    wave_e, pct, sep="/"
+  )) %T>%
+  assign("df_full", ., envir = .GlobalEnv) %>% 
+  filter(備考 != "柵に当たる") 
+
+df %>% DT::datatable()
+
+
+# assign(x = "aaa", 1)
+```
+
+```{r}
+psc_w2 <- ggplot(data = df,
+             aes(x=rockingstate,
+                 y=sty_abs_max_acc_val/100,
+                 color=rockingstate,
+                 label=pct))+
+  theme_pubr(base_family = "Times New Roman", legend = c(0.75,0.8))+
+  theme(legend.box.background = element_rect(color = "black"))+
+  geom_point()+
+  geom_label_repel(family = "Times New Roman",colour = 'black', seed=1234,
+                  max.overlaps = Inf,min.segment.length = 0)+
+  # coord_flip()+
+  # ylab("Max absolute acceleration (m/s^2)")+
+  ylab(expression('Max absolute acceleration (' * m/s^2 * ')'))+
+  xlab("")+
+  # scale_x_continuous(breaks = c(1,2),
+  #                    labels = c("Kobe", "OS-2")
+  #                    )+
+  scale_color_discrete(name="Rocking status")+
+  coord_cartesian( ylim = c(4.50, 7.50))+
+  # coord_cartesian(xlim = c(0.5, 2.5), expand = F, ylim = c(400, 800))+
+  facet_wrap(facets = ~wave_e, nrow = 1)
+
+
+psc_w2
+
+
+ggsave2_tri(psc_w2, wid = 15, hei=12)
+
+```
+
+```{r}
+psc_w2v <- ggplot(data = df,
+             aes(x=wave_div,
+                 y=sty_max_dif_vel_val,
+                 color=rockingstate,
+                 label=pct))+
+  theme_pubr(base_family = "Times New Roman", legend = c(0.75,0.8))+
+  theme(legend.box.background = element_rect(color = "black"))+
+  geom_point()+
+  geom_label_repel(family = "Times New Roman",colour = 'black', seed=1234,
+                  max.overlaps = Inf,min.segment.length = 0)+
+  # coord_flip()+
+  ylab("Max Vel dif")+
+  xlab("Seismic wave type")+
+  scale_x_continuous(breaks = c(1,2),
+                     labels = c("Kobe", "OS-2")
+                     )+
+  scale_color_discrete(name="Rocking status")+
+  coord_cartesian(xlim = c(0.5, 2.5), expand = F)
+
+
+psc_w2v
+
+
+ggsave2_tri(psc_w2v, wid = 15, hei=12)
+
+```
+
+
+
+```{r}
+# psc_w2 <- ggplot()+
+#   theme_pubr(base_family = "Times New Roman")+
+#   # geom_hline(yintercept = 800.0)+
+# # +
+#   # theme(aspect.ratio = 1)+
+#   geom_point(data = df,
+#              aes(x=wave_div,
+#                  y=sty_abs_max_acc_val,
+#                  color=is_rocked))+
+#   geom_label_repel(data = df,
+#                   aes(x=wave_div,
+#                       y=sty_abs_max_acc_val,
+#                       label=exlabel2),
+#                   family = "Times New Roman")+
+#   # coord_flip()+
+#   ylab("Max Abs Acc(gal)")+
+#   xlab("Seismic wave type")+
+#   scale_x_continuous(breaks = c(1,2),
+#                      labels = c("Kobe", "OS-2"))
+# 
+# psc_w2
+# 
+# 
+# ggsave2_tri(psc_w2, wid = 15, hei=12)
+```
+
+
+
+```{r}
+psc <- ggplot()+
+  theme_pubr(base_family = "Times New Roman")+
+  # geom_hline(yintercept = 800.0)+
+# +
+  # theme(aspect.ratio = 1)+
+  geom_point(data = df,
+             aes(x=seismic_wave,
+                 y=sty_abs_max_acc_val/100,
+                 color=is_rocked))+
+  geom_label_repel(data = df,
+                  aes(x=seismic_wave,
+                      y=sty_abs_max_acc_val/100,
+                      label=exlabel2),
+                  family = "Times New Roman")+
+  # coord_flip()+
+  ylab(expression('Max absolute acceleration (' * m/s^2 * ')'))+
+  # ylab("Max Abs Acc(gal)")+
+  xlab("Seismic wave type")
+
+psc
+
+
+ggsave2_tri(psc, wid = 15, hei=12)
+```
+
+
+
+```{r}
+psc_p <- ggplot()+
+  theme_pubr(base_family = "Times New Roman")+
+  # geom_hline(yintercept = 800.0)+
+# +
+  # theme(aspect.ratio = 1)+
+  geom_point(data = df ,
+             aes(x=position_e,
+                 y=sty_abs_max_acc_val,
+                 color=is_rocked))+
+  geom_label_repel(data = df,
+                  aes(x=position_e,
+                      y=sty_abs_max_acc_val,
+                      label=exlabel),
+                  family = "Times New Roman")+
+  coord_flip()+
+  # ylab("Max Abs Acc(gal)")+
+  ylab(expression('Max absolute acceleration (' * m/s^2 * ')'))+
+  xlab("Manikin Position")
+
+psc_p
+
+
+ggsave2_tri(psc_p, wid = 15, hei=12)
+```
+
+```{r}
+psc_p2 <- ggplot()+
+  theme_pubr(base_family = "Times New Roman")+
+  # geom_hline(yintercept = 800.0)+
+# +
+  # theme(aspect.ratio = 1)+
+  geom_point(data = df,
+             aes(x=position_div,
+                 y=sty_abs_max_acc_val,
+                 color=is_rocked))+
+  geom_label_repel(data = df,
+                  aes(x=position_div,
+                      y=sty_abs_max_acc_val,
+                      label=exlabel),
+                  family = "Times New Roman")+
+  coord_cartesian(xlim = c(0.75,2.25))+
+  ylab("Max Abs Acc(gal)")+
+  xlab("M Position")+
+  scale_x_continuous(breaks = c(1,2),
+                                        labels = c("Head Down", "Spine"))
+
+psc_p2
+
+
+ggsave2_tri(psc_p2, wid = 15, hei=12)
+```
+
+
+
+```{r}
+eval_x <- c("sty_abs_max_acc_val",
+            "sty_max_dif_vel_val",
+            "seismic_wave",
+            "position_e",
+            "OT_tpye",
+            "floor_mat"
+            )
+
+l_df <- list()
+
+for(x in eval_x){
+  print(x)
+  fom <- str_c("is_rocked_num ~", x, sep=" ") %>% 
+    as.formula()
+  print(fom)
+  m <- glm(fom,
+           data = df,family=binomial)
+  m_smr <- m %>% summary()
+  df_coef <- m_smr %>% 
+    coef() %>% 
+    as.data.frame() %>% 
+    mutate(val_x = x,
+           nms = rownames(.))
+    
+  
+  l_df[[x]] <- df_coef
+  print(m_smr)
+}
+
+df_logistic <- dplyr::bind_rows(l_df)
+
+df_logistic
+```
+
+
+
+
+
+```{r}
+pos <- position_jitter(width=0.5, seed=1)
+
+psc_whole <- ggplot()+
+  theme_pubr(base_family = "Times New Roman", legend = c(0.2, 0.9))+
+  theme(aspect.ratio = 1,
+        legend.box.background = element_rect(color = "black"))+
+  # geom_abline(slope = 1, intercept = 0, color="black")+
+  geom_segment(aes(x = 3.00, y=3.00, xend = 120.00, yend=120.00), color="black")+
+  geom_point(data = df %>%
+               filter(movement != "転倒"),
+             aes(x=ot_abs_max_acc_val_whole/100,
+                 y=m_abs_max_acc_val_whole/100,
+                 color=rockingstate))+
+  geom_label_repel(data = df %>%
+               filter(movement != "転倒"),
+                  aes(x=ot_abs_max_acc_val_whole/100,
+                      y=m_abs_max_acc_val_whole/100,
+                      label=exlabel3),
+                  family = "Times New Roman"
+               ,colour = 'black', seed=1234,
+                  max.overlaps = Inf,
+               min.segment.length = 0)+
+  ylab(expression('Manikin: Max absolute acceleration (' * m/s^2 * ')'))+
+  xlab(expression('Operating Table: Max absolute acceleration (' * m/s^2 * ')'))+
+  # ylab("M:Max Abs Acc(gal)")+
+  # xlab("OT:Max Abs Acc(gal)")+
+  # xlim(c(1, 12000))+ylim(c(1, 12000))+
+  scale_y_log10(limits =c(3.00,120.00), breaks = c(10.00, 30.00, 100.00), expand = c(0,0))+
+  scale_x_log10(limits =c(3.00,120.00),expand = c(0,0))+
+  scale_color_discrete(name="Rocking status")
+
+
+
+psc_whole
+
+ggsave2_tri(psc_whole, wid = 15, hei=12)
+```
+
+df2res
+```{r}
+df_lim <- df_full %>% 
+  # dplyr::select(experiment_number_res,
+  #               OT_tpye,
+  #               position_e,
+  #               floor_mat,
+  #               wave_e,
+  #               pct,
+  #               safetybar,
+  #               rockingstate,
+  #               movement,
+  #               ot_abs_max_acc_val_whole,
+  #               m_abs_max_acc_val_whole,
+  #               sty_abs_max_acc_val
+  #               ) %>%
+  mutate(s_overturn = if_else(str_detect(movement, "転倒"), "Overturn", "")) %>% 
+  mutate(s_rocking = if_else(str_detect(rockingstate, "Rocked"), "Rocking", "Tremor")) %>% 
+  mutate(s_trapped = if_else(str_detect(safetybar, "柵に"), "Safetybar", "")) %>% 
+  mutate(tablemove = str_c(s_rocking, s_trapped, s_overturn, sep="/") %>% 
+           str_replace_all("//", "/") %>% 
+           str_remove("^/") %>% 
+           str_remove("/$")) %>% 
+  mutate(ot_acc = if_else(s_overturn == "",ot_abs_max_acc_val_whole/100, NA) %>% 
+           round(., 1) %>% 
+           as.character(),
+         mh_acc = if_else(s_overturn == "",m_abs_max_acc_val_whole/100, NA) %>% 
+           round(., 1) %>% 
+           as.character(),
+         sk_acc = if_else(s_trapped == "", sty_abs_max_acc_val/100, NA) %>% 
+           round(., 1) %>% 
+           as.character()) %>% 
+  mutate(time_to_rock = if_else(is_rocked,
+                                sec_end - sec_start,
+                                NA_real_
+                                ) %>% 
+           round(., 1) %>% 
+           as.character()
+           ) %>% 
+  dplyr::select(experiment_number_res,
+                OT_tpye,
+                position_e,
+                floor_mat,
+                wave_e,
+                pct,
+                tablemove,
+                time_to_rock,
+                sk_acc,
+                ot_acc,
+                mh_acc
+                ) %>% 
+  mutate(experiment_number_res = as.character(experiment_number_res))  
+
+h1 <- c("Experiment No.", 
+        "Condition", 
+        "","",
+        "Seismic wave", "",
+        "Result (movement)",
+        "",
+        "Result (maximum acceleration)","","") %>% 
+  `names<-`(., colnames(df_lim))
+
+h2 <- c("", "Operating\nTable", "Surgical\nPosision","Floor\nMaterial","Type",
+        "Output\n(%)","Table\nMovement",
+        "Time to Rocking",
+        # expression('Shaking\nTable\n (' * m/s^2 * ')'),
+        "Shaking\nTable\n(m/s2)",
+        "Operating\nTable\n(m/s2)",
+        "Forhead of\nMannequin\n(m/s2)") %>% 
+  `names<-`(., colnames(df_lim))
+
+h2
+df_lim <- df_lim %>% 
+  bind_rows(h1,h2, .) 
+
+  
+  # expression('Shaking\nTable\n (' * m/s^2 * ')')
+  
+  # %>% 
+#   rbind(
+#     c("Experiment No.", "Condition", "","","Seismic wave", "","Result","","",""),
+#     .
+#   )
+
+# c("Experiment No.", "Condition", "","","Seismic wave", "","Result","","","") %>% 
+#   length()
+
+
+df_lim %>% DT::datatable()  
+openxlsx::write.xlsx(df_lim, "./figs/t3_proto2.xlsx")
+```
+
+
+
+```{r}
+sessionInfo()
+```
+

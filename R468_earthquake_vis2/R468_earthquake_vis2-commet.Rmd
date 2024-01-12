@@ -1,0 +1,222 @@
+---
+title: "R468_earthquake_vis2"
+author: "fk506cni"
+date: "2023-10-31"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r}
+require(tidyverse)
+require(data.table)
+require(ggpubr)
+require(extrafont)
+require(ggrepel)
+loadfonts(quiet = T)
+
+```
+
+
+
+## functions
+```{r}
+require(officer)
+require(rvg)
+
+outputdir <- "./figs/"
+if(!dir.exists(outputdir)){
+  dir.create(outputdir)
+}
+
+ggsave2_tri <- function(plot, wid = 9, hei=9){
+  plot_name <- deparse(substitute(plot))
+  
+  #png
+  file_name <- paste(outputdir,plot_name, ".png", sep = "",collapse = "")
+  ggsave(filename = file_name,plot = plot,device = "png",width = wid, height = hei,dpi = 300,units = "cm")
+  
+  
+  #pdf
+  file_name <- paste(outputdir,plot_name, ".pdf", sep = "",collapse = "")
+  ggsave(filename = file_name,plot = plot,device = "pdf",width = wid, height = hei,dpi = 300,units = "cm")
+  
+  #pptx
+  file_name <- paste(outputdir,plot_name, ".pptx", sep = "",collapse = "")
+  plot_ed <- rvg::dml(ggobj = plot,width = wid, height = hei)
+  
+  doc <- read_pptx() %>%
+    add_slide('Title and Content', 'Office Theme') %>%
+    ph_with(value = "", location = ph_location_type(type = "title")) %>%
+    ph_with(value = plot_ed, location = ph_location(type = "body",width = cm2inch(wid), height = cm2inch(hei),left = 2, top = 2))
+  doc %>%
+    print(target = file_name)
+  
+}
+
+
+
+inch2cm <- function(x){
+  return(x/0.39370)
+}
+cm2inch <- function(x){
+  return(0.39370*x)
+}
+
+p2cm <- function(x){
+  return(as.integer(0.008466666666666667 * x))
+}
+
+cm2p <- function(x){
+  return(as.integer(118.11023622047244 *x))
+}
+
+sv2ggkm <- function(svfit){
+  p <- ggsurvplot(fit = svfit, data = df,
+                risk.table.title = "risk.table.title", risk.table.y.text.col = TRUE,
+           risk.table.y.text = FALSE, fontsize = 5,
+           risk.table = TRUE, tables.theme = theme_pubr(), ggtheme = theme_pubr())
+  p_km <- p$plot
+  p_tb <- p$table
+  p2 <- cowplot::plot_grid(p_km, p_tb, ncol = 1,align = "v", rel_heights = c(3,1))
+  grid::grid.draw(p2)
+  return(p2)
+}
+```
+
+
+```{r}
+# f_res <- "../../dat/df_des_res_fix_20231101_124410_977820.csv"
+f_res <- "../../dat/df_des_res_fix_20231108_124904_004783.csv"
+df <- fread(f_res) %>% 
+  mutate(is_rocked = movement %in% c("ロッキング","転倒")) %>%
+  mutate(is_rocked_num = if_else(is_rocked, 1, 0)) %>% 
+  mutate(exlabel = accentulation_number %>% 
+           str_remove(".CSV") %>% 
+           str_sub(start = 5) %>% 
+           str_remove("kobe0|OS2_0")
+           ) %>% 
+  mutate(position_e =  
+           case_when(position == "仰臥位"~"Spine",
+                     position == "頭低位"~"HeadDown",
+                     T ~ "Other") %>% 
+           as.factor()) %>% 
+  rename(floor_mat = floor) %>% 
+  select(exlabel, everything())
+df %>% DT::datatable()
+```
+
+
+```{r}
+psc <- ggplot()+
+  theme_pubr(base_family = "Times New Roman")+
+  geom_hline(yintercept = 800.0)+
+# +
+  # theme(aspect.ratio = 1)+
+  geom_point(data = df,
+             aes(x=seismic_wave,
+                 y=ot_abs_max_acc_val,
+                 color=is_rocked))+
+  geom_label_repel(data = df,
+                  aes(x=seismic_wave,
+                      y=ot_abs_max_acc_val,
+                      label=exlabel),
+                  family = "Times New Roman")+
+  coord_flip()+ylab("Max Abs Acc(gal???)")+
+  xlab("Seismic wave type")
+
+psc
+
+
+ggsave2_tri(psc, wid = 15, hei=12)
+```
+
+
+```{r}
+psc_p <- ggplot()+
+  theme_pubr(base_family = "Times New Roman")+
+  geom_hline(yintercept = 800.0)+
+# +
+  # theme(aspect.ratio = 1)+
+  geom_point(data = df,
+             aes(x=position_e,
+                 y=ot_abs_max_acc_val,
+                 color=is_rocked))+
+  geom_label_repel(data = df,
+                  aes(x=position_e,
+                      y=ot_abs_max_acc_val,
+                      label=exlabel),
+                  family = "Times New Roman")+
+  coord_flip()+ylab("Max Abs Acc(gal???)")+
+  xlab("M Position")
+
+psc_p
+
+
+ggsave2_tri(psc_p, wid = 15, hei=12)
+```
+
+```{r}
+vals_x <- c("ot_abs_max_acc_val",
+            "ot_max_dif_vel_val",
+            "seismic_wave",
+            "position_e")
+```
+
+
+
+```{r}
+m <- glm(is_rocked_num ~ ot_abs_max_acc_val+ot_max_dif_vel_val+seismic_wave+position_e, 
+         data = df,family=binomial)
+
+m %>% summary()
+
+```
+
+```{r}
+m <- glm(is_rocked_num ~ ot_abs_max_acc_val+ot_max_dif_vel_val+ seismic_wave+OT_tpye, 
+         data = df,family=binomial)
+
+m %>% summary()
+
+```
+
+```{r}
+m <- glm(is_rocked_num ~ ot_abs_max_acc_val+ot_max_dif_vel_val+ seismic_wave+floor_mat, 
+         data = df,family=binomial)
+
+m %>% summary()
+
+```
+
+```{r}
+psc_whole <- ggplot()+
+  theme_pubr(base_family = "Times New Roman")+
+  theme(aspect.ratio = 1)+
+  geom_abline(slope = 1, intercept = 0)+
+  geom_point(data = df,
+             aes(x=ot_abs_max_acc_val_whole,
+                 y=m_abs_max_acc_val_whole,
+                 color=is_rocked))+
+    geom_label_repel(data = df,
+                  aes(x=ot_abs_max_acc_val_whole,
+                      y=m_abs_max_acc_val_whole,
+                      label=exlabel),
+                  family = "Times New Roman")+
+  ylab("M:Max Abs Acc(gal???)")+
+  xlab("OT:Max Abs Acc(gal???)")+
+  # xlim(c(1, 12000))+ylim(c(1, 12000))+
+  scale_y_log10(limits =c(500,12000), breaks = c(1000, 3000, 10000))+
+  scale_x_log10(limits =c(500,12000))
+
+
+psc_whole
+
+ggsave2_tri(psc_whole, wid = 15, hei=12)
+```
+
+
+```{r}
+sessionInfo()
+```
+
