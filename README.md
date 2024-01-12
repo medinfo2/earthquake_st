@@ -1,4 +1,6 @@
-# Operating table stability and patient safety during an earthquake based on the results of a shaking table experiment
+# Earthquake project
+
+Title: Operating table stability and patient safety during an earthquake based on the results of a shaking table experiment
 
 1. n01 create design matrix
 
